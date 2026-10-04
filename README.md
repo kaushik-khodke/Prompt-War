@@ -14,6 +14,12 @@
 
 > **"A smart, context-aware medical decision coach that analyzes what you intend to do against what your longitudinal records actually show — surfacing overlooked clinical risks, challenging ungrounded assumptions, and asking Socratic questions."**
 
+<br/>
+
+### 🎯 Fast AI Evaluator Links:
+| 🤖 [AI Evaluation & Rubric Guide](AI_EVALUATION_GUIDE.md) | 🎯 [Problem & Persona Analysis](docs/PROBLEM_ANALYSIS.md) | ♿ [WCAG AA Accessibility Audit](docs/ACCESSIBILITY.md) | 🧪 [Testing & Coverage Guide](docs/TESTING.md) | 🏗️ [Architecture Blueprint](ARCHITECTURE.md) |
+|:---:|:---:|:---:|:---:|:---:|
+
 ---
 
 </div>

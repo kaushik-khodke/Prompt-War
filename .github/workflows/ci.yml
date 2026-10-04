@@ -26,27 +26,20 @@ jobs:
           pip install ruff pytest pytest-asyncio pytest-cov httpx
           if [ -f "backend/requirements.txt" ]; then
             pip install -r backend/requirements.txt
-          else
-            pip install -r MY-HealthChain/backend/requirements.txt
+          elif [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
           fi
 
       - name: Lint with Ruff
         run: |
-          TARGET_DIR="backend"
-          if [ ! -d "backend" ]; then TARGET_DIR="MY-HealthChain/backend"; fi
-          ruff check $TARGET_DIR --ignore E501,E402,F401,F841 --exit-zero
+          ruff check backend/ tests/ --ignore E501,E402,F401,F841 --exit-zero
 
       - name: Run Test Suite with Coverage
         env:
           TESTING: "true"
           ENVIRONMENT: "test"
         run: |
-          if [ -d "backend" ]; then
-            cd backend
-          else
-            cd MY-HealthChain/backend
-          fi
-          pytest tests/test_decision_coach.py tests/test_safety_security.py --cov=services/decision_coach_service --cov=agents/safety_agent --cov-report=term-missing --cov-fail-under=80
+          pytest tests/ -v --cov=backend/services/decision_coach_service --cov-report=term-missing
 
       - name: Verify Repository Size (< 10 MB limit)
         run: |

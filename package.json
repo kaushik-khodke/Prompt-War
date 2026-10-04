@@ -1,10 +1,27 @@
 {
-  "name": "k-health-care-system",
-  "version": "1.0.0",
-  "description": "K Health Care System Root Entry",
-  "main": "index.js",
+  "name": "myhealthchain-decision-coach",
+  "version": "2.0.0",
+  "description": "Context-Aware Personal Health Decision Coach - Intelligent Clinical Decision Critique Grounded in Longitudinal Patient EHR Records",
+  "author": "Kaushik Khodke",
+  "license": "MIT",
   "scripts": {
-    "start": "node index.js",
-    "whatsapp": "node index.js"
-  }
+    "test": "pytest tests/ -v",
+    "test:coverage": "pytest tests/ --cov=backend --cov-report=term-missing",
+    "test:frontend": "cd frontend && npm test",
+    "lint": "ruff check backend/ tests/",
+    "build": "cd frontend && npm run build",
+    "start": "python backend/main.py",
+    "dev:backend": "cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+    "dev:frontend": "cd frontend && npm run dev"
+  },
+  "keywords": [
+    "promptwars",
+    "health-decision-coach",
+    "context-aware-agent",
+    "ehr-grounding",
+    "google-gemini",
+    "google-cloud-run",
+    "accessibility-wcag-aa",
+    "socratic-reasoning"
+  ]
 }

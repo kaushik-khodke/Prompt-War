@@ -138,6 +138,7 @@ async def test_service_with_gemini_mock():
             assert pillars.grounding_score == 0.96
             assert len(pillars.overlooked_factors) == 1
             assert "145 mmHg" in pillars.overlooked_factors[0]
+            assert pillars.decision_summary != ""
 
 
 @pytest.mark.asyncio
@@ -158,6 +159,7 @@ async def test_service_gemini_fallback_on_error():
             assert isinstance(pillars, CoachingPillars)
             assert len(pillars.overlooked_factors) >= 1
             assert pillars.grounding_score >= 0.90
+            assert pillars.decision_summary != ""
 
 
 # ==============================================================================
@@ -169,16 +171,32 @@ def test_api_sample_profiles():
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is True
+    assert "patient_records" in data["profiles"]
     assert "cardio_hesitancy" in data["profiles"]
     assert "hypertension_schedule" in data["profiles"]
 
 
+def test_api_patient_records_summary():
+    """Verify GET /api/coach/patient-records-summary returns verified documents and vitals."""
+    response = client.get(
+        "/api/coach/patient-records-summary",
+        headers={"Authorization": "Bearer test-token-patient-001"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["total_records"] >= 1
+    assert "documents" in data
+    assert "vitals_snapshot" in data
+
+
 def test_api_analyze_decision_endpoint():
-    """Verify POST /api/coach/analyze successfully executes with valid payload."""
+    """Verify POST /api/coach/analyze successfully executes with valid payload and rich objects."""
     payload = {
         "stated_decision": "I plan to cut my statin dose in half to save money.",
         "stated_priorities": "Reducing out-of-pocket prescription expenses.",
-        "profile_preset": "cardio_hesitancy"
+        "profile_preset": "cardio_hesitancy",
+        "use_uploaded_records": True
     }
 
     # Pass mock auth token
@@ -190,11 +208,32 @@ def test_api_analyze_decision_endpoint():
 
     assert response.status_code == 200
     res_data = response.json()
+    assert "decision_summary" in res_data
     assert "overlooked_factors" in res_data
     assert "assumptions_to_challenge" in res_data
     assert "conflicts_with_records" in res_data
     assert "socratic_questions" in res_data
     assert res_data["grounding_score"] >= 0.80
+
+    # Verify structured elements have non-blank content
+    assert len(res_data["overlooked_factors"]) >= 1
+    factor_item = res_data["overlooked_factors"][0]
+    assert "factor" in factor_item and len(factor_item["factor"]) > 0
+    assert "source_record" in factor_item and len(factor_item["source_record"]) > 0
+    assert "clinical_risk" in factor_item and len(factor_item["clinical_risk"]) > 0
+    assert "severity" in factor_item
+
+    assert len(res_data["assumptions_to_challenge"]) >= 1
+    assumption_item = res_data["assumptions_to_challenge"][0]
+    assert "assumption" in assumption_item and len(assumption_item["assumption"]) > 0
+    assert "counter_evidence" in assumption_item and len(assumption_item["counter_evidence"]) > 0
+    assert "clinical_reality" in assumption_item and len(assumption_item["clinical_reality"]) > 0
+
+    assert len(res_data["conflicts_with_records"]) >= 1
+    conflict_item = res_data["conflicts_with_records"][0]
+    assert "stated_priority" in conflict_item and len(conflict_item["stated_priority"]) > 0
+    assert "conflicting_evidence" in conflict_item and len(conflict_item["conflicting_evidence"]) > 0
+    assert "synthesis" in conflict_item and len(conflict_item["synthesis"]) > 0
 
 
 def test_api_analyze_rejects_empty_decision():

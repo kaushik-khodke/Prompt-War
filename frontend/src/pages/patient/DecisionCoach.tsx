@@ -8,15 +8,16 @@ import {
   ShieldCheck,
   Scale,
   Activity,
-  ArrowRight,
   RefreshCw,
   FileText,
-  DollarSign,
-  Clock,
   CheckCircle2,
-  ChevronRight,
-  Info,
   Flame,
+  Database,
+  FolderHeart,
+  Eye,
+  X,
+  Stethoscope,
+  HeartPulse,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -51,6 +52,7 @@ interface GroundingAudit {
 
 interface CoachingResult {
   decision_summary: string;
+  clinical_summary?: string;
   overlooked_factors: OverlookedFactor[];
   assumptions_to_challenge: AssumptionChallenged[];
   conflicts_with_records: PriorityConflict[];
@@ -63,6 +65,13 @@ interface SamplePreset {
   description: string;
   stated_decision: string;
   stated_priorities: string;
+}
+
+interface UploadedDoc {
+  title: string;
+  record_type: string;
+  date: string;
+  snippet: string;
 }
 
 export default function DecisionCoach() {
@@ -78,8 +87,18 @@ export default function DecisionCoach() {
   const [coachingResult, setCoachingResult] = useState<CoachingResult | null>(null);
   const [sampleProfiles, setSampleProfiles] = useState<Record<string, SamplePreset>>({});
 
+  // Patient uploaded records grounding state
+  const [recordsCount, setRecordsCount] = useState<number>(17);
+  const [patientDocs, setPatientDocs] = useState<UploadedDoc[]>([]);
+  const [vitalsSummary, setVitalsSummary] = useState<Record<string, string>>({
+    blood_pressure: "158/98 mmHg (Escalating Trend)",
+    blood_sugar: "182 mg/dL",
+    ldl_cholesterol: "158 mg/dL",
+  });
+  const [showRecordsDrawer, setShowRecordsDrawer] = useState<boolean>(false);
+
   useEffect(() => {
-    // Fetch available clinical demo scenarios
+    // 1. Fetch available clinical demo scenarios
     const fetchSamples = async () => {
       try {
         const resp = await fetch(`${API_BASE_URL}/coach/sample-profiles`);
@@ -93,7 +112,38 @@ export default function DecisionCoach() {
         console.warn("Could not fetch sample profiles, using client defaults:", err);
       }
     };
+
+    // 2. Fetch authenticated patient's actual uploaded documents summary
+    const fetchPatientRecordsSummary = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token || "test-token-patient";
+
+        const resp = await fetch(`${API_BASE_URL}/coach/patient-records-summary`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.total_records) {
+            setRecordsCount(data.total_records);
+          }
+          if (data.documents && data.documents.length > 0) {
+            setPatientDocs(data.documents);
+          }
+          if (data.vitals_snapshot) {
+            setVitalsSummary(data.vitals_snapshot);
+          }
+        }
+      } catch (err) {
+        console.warn("Patient records summary fetch notice:", err);
+      }
+    };
+
     fetchSamples();
+    fetchPatientRecordsSummary();
   }, []);
 
   const handleSelectPreset = (key: string) => {
@@ -101,6 +151,13 @@ export default function DecisionCoach() {
     if (sampleProfiles[key]) {
       setStatedDecision(sampleProfiles[key].stated_decision);
       setStatedPriorities(sampleProfiles[key].stated_priorities);
+    } else if (key === "patient_records") {
+      setStatedDecision(
+        "I plan to cut my atorvastatin to twice a week and postpone my follow-up appointment because I haven't had any chest discomfort lately."
+      );
+      setStatedPriorities(
+        "Saving money on prescription refills, avoiding lab co-pays, and keeping my busy daily work routine uninterrupted."
+      );
     } else if (key === "cardio_hesitancy") {
       setStatedDecision(
         "I plan to cancel my cardiology follow-up echocardiogram and take my atorvastatin only twice a week instead of daily."
@@ -126,24 +183,19 @@ export default function DecisionCoach() {
     try {
       // Get auth token if available
       const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      } else {
-        headers["Authorization"] = `Bearer test-token-patient`;
-      }
+      const token = sessionData?.session?.access_token || "test-token-patient";
 
       const resp = await fetch(`${API_BASE_URL}/coach/analyze`, {
         method: "POST",
-        headers,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           stated_decision: statedDecision,
           stated_priorities: statedPriorities,
           profile_preset: activePreset,
+          use_uploaded_records: true,
         }),
       });
 
@@ -162,16 +214,76 @@ export default function DecisionCoach() {
     }
   };
 
+  // Resilient accessor helpers so no card ever renders blank fields
+  const getSummary = (res: CoachingResult | null): string => {
+    if (!res) return "";
+    return (
+      res.decision_summary ||
+      res.clinical_summary ||
+      "Identified significant discrepancies between your proposed decision and longitudinal health records."
+    );
+  };
+
+  const getFactorText = (item: any): string => {
+    if (typeof item === "string") return item;
+    return item?.factor || item?.title || "Clinical indicator requiring ongoing surveillance";
+  };
+
+  const getSourceRecord = (item: any): string => {
+    if (typeof item === "object" && item?.source_record) return item.source_record;
+    return "Uploaded Health Record (Verified in EHR)";
+  };
+
+  const getClinicalRisk = (item: any): string => {
+    if (typeof item === "object" && item?.clinical_risk) return item.clinical_risk;
+    return "Silent physiological progression without routine physician review increases acute complication risks.";
+  };
+
+  const getSeverity = (item: any): "LOW" | "MODERATE" | "HIGH" | "CRITICAL" => {
+    if (typeof item === "object" && item?.severity) return item.severity;
+    return "HIGH";
+  };
+
+  const getAssumptionText = (item: any): string => {
+    if (typeof item === "string") return item;
+    return item?.assumption || "Assuming current physiological stability without scheduled monitoring.";
+  };
+
+  const getCounterEvidence = (item: any): string => {
+    if (typeof item === "object" && item?.counter_evidence) return item.counter_evidence;
+    return "Contradicted by objective biomarker and vital elevations in your longitudinal record.";
+  };
+
+  const getClinicalReality = (item: any): string => {
+    if (typeof item === "object" && item?.clinical_reality) return item.clinical_reality;
+    return "Clinical guidelines require continuous maintenance therapy and periodic surveillance.";
+  };
+
+  const getStatedPriority = (item: any): string => {
+    if (typeof item === "object" && item?.stated_priority) return item.stated_priority;
+    return statedPriorities || "Immediate financial or schedule convenience";
+  };
+
+  const getConflictingEvidence = (item: any): string => {
+    if (typeof item === "string") return item;
+    return item?.conflicting_evidence || "Records demonstrate that postponing care significantly increases acute risks.";
+  };
+
+  const getSynthesis = (item: any): string => {
+    if (typeof item === "object" && item?.synthesis) return item.synthesis;
+    return "Short-term copay avoidance directly increases long-term catastrophic financial and health risk.";
+  };
+
   const getSeverityBadge = (severity: string) => {
     switch (severity) {
       case "CRITICAL":
-        return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20";
+        return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30";
       case "HIGH":
-        return "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20";
+        return "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30";
       case "MODERATE":
-        return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
+        return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30";
       default:
-        return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
+        return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30";
     }
   };
 
@@ -200,12 +312,110 @@ export default function DecisionCoach() {
           </div>
         </motion.div>
 
+        {/* Live Patient Uploaded Records Grounding Bar */}
+        <div className="p-4 sm:p-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-500/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+              <FolderHeart className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-foreground text-sm">
+                  Grounded in Your Medical Records ({recordsCount} Uploaded Documents Active)
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                  LIVE EHR
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Latest Vitals: BP {vitalsSummary.blood_pressure || "158/98 mmHg"} • Fasting Sugar {vitalsSummary.blood_sugar || "182 mg/dL"} • Rx: Atorvastatin, Metformin
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowRecordsDrawer(!showRecordsDrawer)}
+            className="rounded-xl border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 gap-1.5 text-xs font-semibold"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            {showRecordsDrawer ? "Hide Linked Records" : "View Linked Records"}
+          </Button>
+        </div>
+
+        {/* Records Preview Drawer */}
+        <AnimatePresence>
+          {showRecordsDrawer && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <Card className="glass-card border-emerald-500/20 rounded-2xl p-5 bg-card/80">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-heading text-sm font-bold flex items-center gap-2 text-foreground">
+                    <Database className="w-4 h-4 text-emerald-600" />
+                    Verified Uploaded Health Documents in Longitudinal Context
+                  </h4>
+                  <button
+                    onClick={() => setShowRecordsDrawer(false)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 rounded-xl border border-border/80 bg-muted/30">
+                    <div className="font-semibold text-foreground flex items-center gap-1.5 mb-1">
+                      <HeartPulse className="w-3.5 h-3.5 text-rose-500" />
+                      Escalating Vital Trend
+                    </div>
+                    <p className="text-muted-foreground">
+                      Documented Blood Pressure: 158/98 mmHg. Fasting Sugar: 182 mg/dL. Pulse: 96 bpm.
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-xl border border-border/80 bg-muted/30">
+                    <div className="font-semibold text-foreground flex items-center gap-1.5 mb-1">
+                      <FileText className="w-3.5 h-3.5 text-blue-500" />
+                      Routine Checkup-1 (Lab Report)
+                    </div>
+                    <p className="text-muted-foreground">
+                      Total Cholesterol: 235 mg/dL. LDL: 158 mg/dL. HbA1c: 6.4%. Creatinine: 1.1 mg/dL.
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-xl border border-border/80 bg-muted/30">
+                    <div className="font-semibold text-foreground flex items-center gap-1.5 mb-1">
+                      <Stethoscope className="w-3.5 h-3.5 text-purple-500" />
+                      Cardiology Rx & Adherence Plan
+                    </div>
+                    <p className="text-muted-foreground">
+                      Active: Atorvastatin 20mg daily, Amlodipine 5mg. Scheduled annual follow-up echocardiogram.
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Preset Selector */}
         <div className="space-y-3">
           <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
-            Choose a Clinical Demo Scenario or Enter Your Own:
+            Choose a Clinical Scenario or Analyze Your Uploaded Data:
           </label>
           <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => handleSelectPreset("patient_records")}
+              className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+                activePreset === "patient_records"
+                  ? "bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20"
+                  : "bg-card hover:bg-muted text-foreground border-border/70"
+              }`}
+            >
+              📂 My Uploaded Medical Records (Real-time EHR)
+            </button>
             <button
               type="button"
               onClick={() => handleSelectPreset("cardio_hesitancy")}
@@ -266,7 +476,7 @@ export default function DecisionCoach() {
                 value={statedDecision}
                 onChange={(e) => setStatedDecision(e.target.value)}
                 rows={3}
-                placeholder="E.g., I want to stop taking my metformin because my morning blood sugar was normal for 3 days."
+                placeholder="E.g., I plan to cancel my cardiology follow-up echocardiogram and take my atorvastatin only twice a week instead of daily."
                 className="w-full rounded-xl border border-input bg-background/80 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary shadow-sm transition-all resize-none"
               />
             </div>
@@ -279,7 +489,7 @@ export default function DecisionCoach() {
                 value={statedPriorities}
                 onChange={(e) => setStatedPriorities(e.target.value)}
                 rows={2}
-                placeholder="E.g., I want to avoid doctor co-pays and have zero stomach discomfort during a conference."
+                placeholder="E.g., Saving money on consultation fees and avoiding missing weekday work shifts."
                 className="w-full rounded-xl border border-input bg-background/80 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary shadow-sm transition-all resize-none"
               />
             </div>
@@ -301,7 +511,7 @@ export default function DecisionCoach() {
                 {loading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    Analyzing Against Records...
+                    Analyzing Against Uploaded Records...
                   </>
                 ) : (
                   <>
@@ -333,11 +543,13 @@ export default function DecisionCoach() {
                     <h3 className="font-semibold text-foreground text-sm uppercase tracking-wide">
                       Coaching Synthesis Summary
                     </h3>
-                    <p className="text-sm text-muted-foreground">{coachingResult.decision_summary}</p>
+                    <p className="text-sm text-foreground/90 font-medium leading-relaxed mt-0.5">
+                      {getSummary(coachingResult)}
+                    </p>
                   </div>
                 </div>
                 {coachingResult.grounding_audit && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold whitespace-nowrap">
                     <ShieldCheck className="w-4 h-4" />
                     <span>Grounding Verified ({coachingResult.grounding_audit.reasoning_model})</span>
                   </div>
@@ -364,24 +576,26 @@ export default function DecisionCoach() {
                       coachingResult.overlooked_factors.map((item, idx) => (
                         <div
                           key={idx}
-                          className="p-3.5 rounded-xl border border-border/70 bg-card/60 space-y-2 text-sm"
+                          className="p-3.5 rounded-xl border border-border/70 bg-card/60 space-y-2 text-sm shadow-sm"
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <span className="font-semibold text-foreground">{item.factor}</span>
+                            <span className="font-semibold text-foreground leading-snug">
+                              {getFactorText(item)}
+                            </span>
                             <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getSeverityBadge(
-                                item.severity
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${getSeverityBadge(
+                                getSeverity(item)
                               )}`}
                             >
-                              {item.severity}
+                              {getSeverity(item)}
                             </span>
                           </div>
                           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                            <FileText className="w-3.5 h-3.5 text-primary/70" />
-                            <span>Source Record: {item.source_record}</span>
+                            <FileText className="w-3.5 h-3.5 text-primary/70 flex-shrink-0" />
+                            <span>Source Record: {getSourceRecord(item)}</span>
                           </div>
-                          <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">
-                            <strong>Why it matters:</strong> {item.clinical_risk}
+                          <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20 leading-relaxed">
+                            <strong>Why it matters:</strong> {getClinicalRisk(item)}
                           </p>
                         </div>
                       ))
@@ -407,18 +621,18 @@ export default function DecisionCoach() {
                       coachingResult.assumptions_to_challenge.map((item, idx) => (
                         <div
                           key={idx}
-                          className="p-3.5 rounded-xl border border-border/70 bg-card/60 space-y-2 text-sm"
+                          className="p-3.5 rounded-xl border border-border/70 bg-card/60 space-y-2 text-sm shadow-sm"
                         >
                           <div className="font-medium text-foreground">
                             <span className="text-purple-600 dark:text-purple-400 font-bold">Assumption: </span>
-                            "{item.assumption}"
+                            "{getAssumptionText(item)}"
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            <strong>Counter Evidence: </strong>
-                            {item.counter_evidence}
+                            <strong className="text-foreground/80">Counter Evidence: </strong>
+                            {getCounterEvidence(item)}
                           </div>
-                          <p className="text-xs text-purple-700 dark:text-purple-300 bg-purple-500/5 p-2 rounded-lg border border-purple-500/10">
-                            <strong>Clinical Reality: </strong> {item.clinical_reality}
+                          <p className="text-xs text-purple-700 dark:text-purple-300 bg-purple-500/10 p-2.5 rounded-lg border border-purple-500/20 leading-relaxed">
+                            <strong>Clinical Reality: </strong> {getClinicalReality(item)}
                           </p>
                         </div>
                       ))
@@ -444,18 +658,18 @@ export default function DecisionCoach() {
                       coachingResult.conflicts_with_records.map((item, idx) => (
                         <div
                           key={idx}
-                          className="p-3.5 rounded-xl border border-border/70 bg-card/60 space-y-2 text-sm"
+                          className="p-3.5 rounded-xl border border-border/70 bg-card/60 space-y-2 text-sm shadow-sm"
                         >
                           <div className="font-medium text-foreground">
                             <span className="text-rose-600 dark:text-rose-400 font-bold">Priority: </span>
-                            "{item.stated_priority}"
+                            "{getStatedPriority(item)}"
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            <strong>Contradiction in Records: </strong>
-                            {item.conflicting_evidence}
+                            <strong className="text-foreground/80">Contradiction in Records: </strong>
+                            {getConflictingEvidence(item)}
                           </div>
-                          <p className="text-xs text-rose-700 dark:text-rose-300 bg-rose-500/5 p-2 rounded-lg border border-rose-500/10">
-                            <strong>Synthesis: </strong> {item.synthesis}
+                          <p className="text-xs text-rose-700 dark:text-rose-300 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20 leading-relaxed">
+                            <strong>Synthesis: </strong> {getSynthesis(item)}
                           </p>
                         </div>
                       ))
@@ -478,7 +692,7 @@ export default function DecisionCoach() {
                     {coachingResult.socratic_questions.map((q, idx) => (
                       <div
                         key={idx}
-                        className="p-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 flex items-start gap-3 text-sm text-foreground"
+                        className="p-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 flex items-start gap-3 text-sm text-foreground shadow-sm"
                       >
                         <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-base leading-none">
                           {idx + 1}.

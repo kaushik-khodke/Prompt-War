@@ -1,0 +1,30 @@
+# Core Web & API Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+gunicorn>=21.2.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.12
+aiofiles>=24.1.0
+httpx>=0.27.0
+requests>=2.32.0
+
+# Google Services & AI
+google-genai>=0.1.0
+langfuse>=2.50.0
+
+# Database & Document Processing
+supabase>=2.0.0
+PyPDF2>=3.0.0
+
+# Classical & Quantum Numerical Engines (Zero heavy deep-learning dependencies)
+numpy>=1.26.0
+scipy>=1.10.0
+pandas>=2.0.0
+scikit-learn>=1.5.0
+xgboost>=2.0.0
+Pillow>=10.0.0
+
+# Testing & Quality
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=5.0.0
